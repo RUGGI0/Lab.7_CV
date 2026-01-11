@@ -1,0 +1,74 @@
+function [] = compareCDOF(videoFile, alpha, tau2, W) 
+% This function compares the output of the change detection algorithm based
+% on a running average, and of the optical flow estimated with the
+% Lucas-Kanade algorithm.
+% You must visualize the original video, the background and binary map
+% obtained with the change detection, the magnitude and direction of the
+% optical flow.
+% tau1 is the threshold for the change detection
+% alpha is the parameter to weight the contribution of current image and
+% previous background in the running average
+% tau2 is the threshold for the image differencing in the running average
+% W is the side of the square patch to compute the optical flow
+
+% Create a VideoReader object
+videoReader = VideoReader(videoFile);
+
+first_frame = readFrame(videoReader); % Initialize previous_frame with the first frame
+previous_frame = rgb2gray(first_frame);
+    
+background = double(rgb2gray(first_frame));
+
+i = 0;
+
+hFigure = figure(2);
+
+% Loop through each frame of the video
+while hasFrame(videoReader)
+    % Read the next frame
+    frame = readFrame(videoReader);
+
+    % Check if the user has closed the figure
+    if ~isvalid(hFigure)
+        disp('Playback interrupted by user.');
+        break;
+    end
+
+    % Display the frame
+    figure(hFigure), subplot(2, 2, 1), imshow(frame, 'Border', 'tight');
+    title(sprintf('Frame %d', round(videoReader.CurrentTime * videoReader.FrameRate)));
+    
+    frame = rgb2gray(frame);
+
+    [U, V] = LucasKanade(previous_frame, frame, W);
+
+    % Display the map of the optical flow
+    % You can obtain the map by using the convertToMagDir function
+    figure(hFigure), subplot(2,2, 2), quiver(U(1:10:size(U,1), 1:10:size(U,2)), V(1:10:size(V,1), 1:10:size(V,2)));
+    title('Optical Flow');
+    axis ij;
+    
+    % Compute the running average for background estimation
+    background = alpha * double(frame) + (1 - alpha) * background;
+
+
+    % Display the running average
+    figure(hFigure), subplot(2, 2, 4), imshow(uint8(gray2rgb(background)), 'Border', 'tight');
+    title('Dinamic background');
+
+    diff = abs(frame - uint8(background));
+    binaryMap = diff > tau2;
+    % Display the binary map obtained with the change detection
+    figure(hFigure), subplot(2, 2, 3), imshow(binaryMap, 'Border', 'tight');
+    title('Binary map');
+    
+    previous_frame = frame;
+
+    i = i + 1;
+
+    pause(0.1);
+
+end
+
+fprintf('Finished displaying video: %s\n', videoFile);
+end

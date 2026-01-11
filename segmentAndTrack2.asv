@@ -1,0 +1,160 @@
+function [] = segmentAndTrack2(videoFile, alpha, tau2) 
+% This function ...
+% alpha is the parameter to weight the contribution of current image and
+% previous background in the running average
+% tau2 is the threshold for the image differencing in the running average
+% Add here input parameters to control the tracking procedure if you need...
+
+% Default parameters
+if nargin < 1
+    videoFile = 'luce_vp.mp4';    
+    alpha = 0.001; 
+    tau2 = 35;
+end
+
+% Create a VideoReader object
+videoReader = VideoReader(videoFile);
+
+% Initialize variables
+i = 0;
+trajectory = []; 
+background = []; 
+
+% Kalman filter structure
+kfState = [];
+
+% Parametri per il filtro (dal tuo codice esempio)
+meas_noise = 2.0;   % Measures noise
+proc_noise = 0.5;   % Who trust more? Model or measure?
+
+hFigure = figure(1);
+
+while hasFrame(videoReader)
+
+    % Check if the user has closed the figure
+    if ~isvalid(hFigure)
+    disp('Playback interrupted by user.');
+    break;
+    end
+
+    frame = readFrame(videoReader);
+    doubleFrame = double(rgb2gray(frame));
+    if isempty(background)
+        background = doubleFrame;
+    end
+
+    % Change Detection
+    diffFrame = abs(doubleFrame - background);
+    binaryMap = diffFrame > tau2;
+    
+    % Cleaning
+    binaryMap = imfill(binaryMap, 'holes');
+    binaryMap = imopen(binaryMap, strel('disk', 3));  
+    binaryMap = imclose(binaryMap, strel('disk', 8));
+
+    % Update background
+    background = alpha * doubleFrame + (1 - alpha) * background;
+
+    %% Plot
+    figure(hFigure);
+    subplot(2, 2, 1); imshow(rgb2gray(frame)); title(sprintf('Frame %d', i)); hold on;
+    
+    if ~isempty(trajectory)
+        plot(trajectory(:,1), trajectory(:,2), 'y-', 'LineWidth', 1);
+        plot(trajectory(end,1), trajectory(end,2), 'r+', 'MarkerSize', 10, 'LineWidth', 2);
+    end
+
+    if ~isempty(kfState)
+        predState = kfState.PHI * kfState.xhat;
+        predictedPos = predState(1:2)'; 
+        plot(predictedPos(1), predictedPos(2), 'gx', 'MarkerSize', 10, 'LineWidth', 2);
+    end
+    
+    subplot(2, 2, 2); imshow(binaryMap); title('Binary Map'); hold on;
+    
+    hold off;
+
+    subplot(2, 2, 3); imshow(uint8(background), 'Border', 'tight');
+    title('Dinamic background');
+
+    %% Tracking
+    if(i == 1380)
+        subplot(2, 2, 1); title('PAUSED: click on the subject');
+        [x_click, y_click] = ginput(1);
+        
+        % Blob 
+        cc = bwconncomp(binaryMap);
+        props = regionprops(cc, 'Centroid');
+        
+        startPos = [x_click, y_click];
+        if ~isempty(props)
+            centroids = vertcat(props.Centroid);
+            dists = sum((centroids - startPos).^2, 2);
+            [~, idx] = min(dists);
+            startPos = centroids(idx, :);
+        end
+        
+        % INIZIALIZZAZIONE STRUTTURA KALMAN
+        % Stato iniziale: [x; y; vx; vy] -> assumiamo velocità iniziale 0
+        x_init = [startPos(1); startPos(2); 0; 0]; 
+        
+        kfState.xhat = x_init;
+        kfState.PHI = [1 0 1 0; 0 1 0 1; 0 0 1 0; 0 0 0 1]; % Transizione
+        kfState.H = [1 0 0 0; 0 1 0 0];                     % Misura (solo x,y)
+        kfState.Q1 = proc_noise^2 * eye(4);                % Rumore Processo
+        kfState.Q2 = meas_noise^2 * eye(2);                % Rumore Misura
+        kfState.kn = 10 * eye(4);                          % Covarianza iniziale Errore
+        
+        trajectory = [trajectory; startPos];
+        disp('Kalman Filter Inizialized.');
+
+    elseif(i > 1380 && ~isempty(kfState))
+        
+        % 1. PREDIZIONE: Dove dovrebbe essere il soggetto?
+        % Eseguiamo il passo "A Priori" del Kalman
+        x_pred = kfState.PHI * kfState.xhat;
+        predPos = x_pred(1:2)'; % [x, y]
+        
+        % 2. MISURA: Cerchiamo un blob vicino alla predizione
+        cc = bwconncomp(binaryMap);
+        props = regionprops(cc, 'Centroid', 'Area');
+        
+        measurement = []; % Se vuoto, significa "misura mancante"
+        
+        if ~isempty(props)
+            % Filtro dimensione minima
+            props = props([props.Area] > 30);
+            if ~isempty(props)
+                centroids = vertcat(props.Centroid);
+                
+                % Calcola distanze dalla PREDIZIONE del Kalman
+                dists = sum((centroids - predPos).^2, 2);
+                [minDist, idx] = min(dists);
+                
+                % GATING: Accettiamo la misura solo se è ragionevolmente vicina
+                % (es. entro 60 pixel dalla predizione)
+                if minDist < (40^2)
+                    measurement = centroids(idx, :)'; % Vettore colonna [x; y]
+                end
+            end
+        end
+        
+        % 3. CORREZIONE (UPDATE): Chiamata alla funzione del Kalman
+        kfState = KalmanFilter(kfState, measurement);
+        
+        % Salvataggio traiettoria (usiamo la stima a posteriori)
+        currentPos = kfState.xhat(1:2)';
+        trajectory = [trajectory; currentPos];
+        
+        if isempty(measurement)
+            disp('Occlusion/Miss: Only prediction');
+        end
+    end
+    
+    subplot(2, 2, 1); hold off;
+    drawnow;
+    i = i + 1;
+end
+
+close all;
+end

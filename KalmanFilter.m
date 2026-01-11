@@ -1,0 +1,28 @@
+function kfState = KalmanFilter(kfState, measurement)
+    PHI = kfState.PHI;
+    H = kfState.H;
+    Q1 = kfState.Q1;
+    Q2 = kfState.Q2;
+    xhat = kfState.xhat;
+    kn = kfState.kn;
+    
+    xhat_apr = PHI * xhat; %a priori estimate
+    K = PHI * kn * PHI' + Q1; %a priori error covariance estimate
+    
+    if ~isempty(measurement)
+        alpha = measurement - H * xhat_apr; %innovation process
+        SIGMA = H * K * H' + Q2; %innovation covariance
+        G = K * H' / SIGMA; %Kalman gain
+        xhat_new = xhat_apr + G * alpha; %a posteriori estimate
+        kn_new = (eye(size(kn)) - G * H) * K; %a posteriori error covariance estimate
+        
+    else
+        % No input
+        xhat_new = xhat_apr;
+        kn_new = K; % incertenties
+    end
+    
+    % Saving new data
+    kfState.xhat = xhat_new;
+    kfState.kn = kn_new;
+end
