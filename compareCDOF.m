@@ -14,10 +14,10 @@ function [] = compareCDOF(videoFile, alpha, tau2, W)
 % Create a VideoReader object
 videoReader = VideoReader(videoFile);
 
-first_frame = readFrame(videoReader); % Initialize previous_frame with the first frame
-previous_frame = rgb2gray(first_frame);
+first_frame = rgb2gray(readFrame(videoReader)); % Initialize previous_frame with the first frame
+previous_frame = first_frame;
     
-background = double(rgb2gray(first_frame));
+background = double(first_frame);
 
 i = 0;
 
@@ -26,7 +26,7 @@ hFigure = figure(2);
 % Loop through each frame of the video
 while hasFrame(videoReader)
     % Read the next frame
-    frame = readFrame(videoReader);
+    frame = rgb2gray(readFrame(videoReader));
 
     % Check if the user has closed the figure
     if ~isvalid(hFigure)
@@ -37,8 +37,6 @@ while hasFrame(videoReader)
     % Display the frame
     figure(hFigure), subplot(2, 2, 1), imshow(frame, 'Border', 'tight');
     title(sprintf('Frame %d', round(videoReader.CurrentTime * videoReader.FrameRate)));
-    
-    frame = rgb2gray(frame);
 
     [U, V] = LucasKanade(previous_frame, frame, W);
 
@@ -53,7 +51,7 @@ while hasFrame(videoReader)
 
 
     % Display the running average
-    figure(hFigure), subplot(2, 2, 4), imshow(uint8(gray2rgb(background)), 'Border', 'tight');
+    figure(hFigure), subplot(2, 2, 4), imshow(uint8(background), 'Border', 'tight');
     title('Dinamic background');
 
     diff = abs(frame - uint8(background));
